@@ -22,6 +22,7 @@ SEXP char_ordered;
 SEXP char_datatable;
 SEXP char_dataframe;
 SEXP char_NULL;
+SEXP char_maxString;
 SEXP sym_sorted;
 SEXP sym_index;
 SEXP sym_BY;
@@ -34,6 +35,8 @@ SEXP sym_inherits;
 SEXP sym_datatable_locked;
 SEXP sym_tzone;
 SEXP sym_old_fread_datetime_character;
+SEXP sym_variable_table;
+SEXP sym_as_character;
 double NA_INT64_D;
 long long NA_INT64_LL;
 Rcomplex NA_CPLX;
@@ -104,6 +107,7 @@ SEXP dim();
 SEXP gvar();
 SEXP gsd();
 SEXP gprod();
+SEXP gshift();
 SEXP nestedid();
 SEXP setDTthreads();
 SEXP getDTthreads_R();
@@ -125,6 +129,7 @@ SEXP islockedR();
 SEXP allNAR();
 SEXP test_dt_win_snprintf();
 SEXP dt_zlib_version();
+SEXP startsWithAny();
 
 // .Externals
 SEXP fastmean();
@@ -180,6 +185,7 @@ R_CallMethodDef callMethods[] = {
 {"Ctranspose", (DL_FUNC) &transpose, -1},
 {"CanyNA", (DL_FUNC) &anyNA, -1},
 {"CisReallyReal", (DL_FUNC) &isReallyReal, -1},
+{"CisRealReallyIntR", (DL_FUNC) &isRealReallyIntR, -1},
 {"Csetlevels", (DL_FUNC) &setlevels, -1},
 {"Crleid", (DL_FUNC) &rleid, -1},
 {"Cgmedian", (DL_FUNC) &gmedian, -1},
@@ -192,6 +198,7 @@ R_CallMethodDef callMethods[] = {
 {"Cgvar", (DL_FUNC) &gvar, -1},
 {"Cgsd", (DL_FUNC) &gsd, -1},
 {"Cgprod", (DL_FUNC) &gprod, -1},
+{"Cgshift", (DL_FUNC) &gshift, -1},
 {"Cnestedid", (DL_FUNC) &nestedid, -1},
 {"CsetDTthreads", (DL_FUNC) &setDTthreads, -1},
 {"CgetDTthreads", (DL_FUNC) &getDTthreads_R, -1},
@@ -219,6 +226,8 @@ R_CallMethodDef callMethods[] = {
 {"CcoerceAs", (DL_FUNC) &coerceAs, -1},
 {"Ctest_dt_win_snprintf", (DL_FUNC)&test_dt_win_snprintf, -1},
 {"Cdt_zlib_version", (DL_FUNC)&dt_zlib_version, -1},
+{"Csubstitute_call_arg_namesR", (DL_FUNC) &substitute_call_arg_namesR, -1},
+{"CstartsWithAny", (DL_FUNC)&startsWithAny, -1},
 {NULL, NULL, 0}
 };
 
@@ -242,31 +251,32 @@ static void setSizes() {
   // One place we need the largest sizeof is the working memory malloc in reorder.c
 }
 
-void attribute_visible R_init_datatable(DllInfo *info)
-// relies on pkg/src/Makevars to mv data.table.so to datatable.so
+void attribute_visible R_init_data_table(DllInfo *info)
 {
-  // C exported routines, see ?cdt for details
-  R_RegisterCCallable("data.table", "CsubsetDT", (DL_FUNC) &subsetDT);
+  // C exported routines
+  // must be also listed in inst/include/datatableAPI.h
+  // for end user documentation see ?cdt
+  R_RegisterCCallable("data.table", "DT_subsetDT", (DL_FUNC) &subsetDT);
 
   R_registerRoutines(info, NULL, callMethods, NULL, externalMethods);
   R_useDynamicSymbols(info, FALSE);
   setSizes();
-  const char *msg = "... failed. Please forward this message to maintainer('data.table').";
+  const char *msg = _("... failed. Please forward this message to maintainer('data.table').");
   if ((int)NA_INTEGER != (int)INT_MIN) error(_("Checking NA_INTEGER [%d] == INT_MIN [%d] %s"), NA_INTEGER, INT_MIN, msg);
   if ((int)NA_INTEGER != (int)NA_LOGICAL) error(_("Checking NA_INTEGER [%d] == NA_LOGICAL [%d] %s"), NA_INTEGER, NA_LOGICAL, msg);
-  if (sizeof(int) != 4) error(_("Checking sizeof(int) [%d] is 4 %s"), sizeof(int), msg);
-  if (sizeof(double) != 8) error(_("Checking sizeof(double) [%d] is 8 %s"), sizeof(double), msg);     // 8 on both 32bit and 64bit
+  if (sizeof(int) != 4)       error(_("Checking sizeof(%s) [%d] is %d %s"), "int", sizeof(int), 4, msg);
+  if (sizeof(double) != 8)    error(_("Checking sizeof(%s) [%d] is %d %s"), "double", sizeof(double), 8, msg);     // 8 on both 32bit and 64bit
   // alignof not available in C99: if (alignof(double) != 8) error(_("Checking alignof(double) [%d] is 8 %s"), alignof(double), msg);  // 8 on both 32bit and 64bit
-  if (sizeof(long long) != 8) error(_("Checking sizeof(long long) [%d] is 8 %s"), sizeof(long long), msg);
+  if (sizeof(long long) != 8) error(_("Checking sizeof(%s) [%d] is %d %s"), "long long", sizeof(long long), 8, msg);
   if (sizeof(char *) != 4 && sizeof(char *) != 8) error(_("Checking sizeof(pointer) [%d] is 4 or 8 %s"), sizeof(char *), msg);
   if (sizeof(SEXP) != sizeof(char *)) error(_("Checking sizeof(SEXP) [%d] == sizeof(pointer) [%d] %s"), sizeof(SEXP), sizeof(char *), msg);
-  if (sizeof(uint64_t) != 8) error(_("Checking sizeof(uint64_t) [%d] is 8 %s"), sizeof(uint64_t), msg);
-  if (sizeof(int64_t) != 8) error(_("Checking sizeof(int64_t) [%d] is 8 %s"), sizeof(int64_t), msg);
-  if (sizeof(signed char) != 1) error(_("Checking sizeof(signed char) [%d] is 1 %s"), sizeof(signed char), msg);
-  if (sizeof(int8_t) != 1) error(_("Checking sizeof(int8_t) [%d] is 1 %s"), sizeof(int8_t), msg);
-  if (sizeof(uint8_t) != 1) error(_("Checking sizeof(uint8_t) [%d] is 1 %s"), sizeof(uint8_t), msg);
-  if (sizeof(int16_t) != 2) error(_("Checking sizeof(int16_t) [%d] is 2 %s"), sizeof(int16_t), msg);
-  if (sizeof(uint16_t) != 2) error(_("Checking sizeof(uint16_t) [%d] is 2 %s"), sizeof(uint16_t), msg);
+  if (sizeof(uint64_t) != 8) error(_("Checking sizeof(%s) [%d] is %d %s"), "uint64_t", sizeof(uint64_t), 8, msg);
+  if (sizeof(int64_t) != 8)  error(_("Checking sizeof(%s) [%d] is %d %s"), "int64_t", sizeof(int64_t), 8, msg);
+  if (sizeof(signed char) != 1) error(_("Checking sizeof(%s) [%d] is %d %s"), "signed char", sizeof(signed char), 1, msg);
+  if (sizeof(int8_t) != 1)   error(_("Checking sizeof(%s) [%d] is %d %s"), "int8_t", sizeof(int8_t), 1, msg);
+  if (sizeof(uint8_t) != 1)  error(_("Checking sizeof(%s) [%d] is %d %s"), "uint8_t", sizeof(uint8_t), 1, msg);
+  if (sizeof(int16_t) != 2)  error(_("Checking sizeof(%s) [%d] is %d %s"), "int16_t", sizeof(int16_t), 2, msg);
+  if (sizeof(uint16_t) != 2) error(_("Checking sizeof(%s) [%d] is %d %s"), "uint16_t", sizeof(uint16_t), 2 ,msg);
 
   SEXP tmp = PROTECT(allocVector(INTSXP,2));
   if (LENGTH(tmp)!=2) error(_("Checking LENGTH(allocVector(INTSXP,2)) [%d] is 2 %s"), LENGTH(tmp), msg);
@@ -333,6 +343,7 @@ void attribute_visible R_init_datatable(DllInfo *info)
   char_datatable = PRINTNAME(install("data.table"));
   char_dataframe = PRINTNAME(install("data.frame"));
   char_NULL =      PRINTNAME(install("NULL"));
+  char_maxString = PRINTNAME(install("\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF"));
 
   if (TYPEOF(char_integer64) != CHARSXP) {
     // checking one is enough in case of any R-devel changes
@@ -357,6 +368,8 @@ void attribute_visible R_init_datatable(DllInfo *info)
   sym_datatable_locked = install(".data.table.locked");
   sym_tzone = install("tzone");
   sym_old_fread_datetime_character = install("datatable.old.fread.datetime.character");
+  sym_variable_table = install("variable_table");
+  sym_as_character = install("as.character");
 
   initDTthreads();
   avoid_openmp_hang_within_fork();
@@ -369,7 +382,7 @@ inline long long DtoLL(double x) {
   // under clang 3.9.1 -O3 and solaris-sparc but not solaris-x86 or gcc.
   // There is now a grep in CRAN_Release.cmd; use this union method instead.
   // int64_t may help rather than 'long long' (TODO: replace all long long with int64_t)
-  // The two types must be the same size. That is checked in R_init_datatable (above)
+  // The two types must be the same size. That is checked in R_init_data_table (above)
   // where sizeof(int64_t)==sizeof(double)==8 is checked.
   // Endianness should not matter because whether big or little, endianness is the same
   // inside this process, and the two types are the same size.
@@ -388,7 +401,7 @@ int GetVerbose() {
   // don't call repetitively; save first in that case
   SEXP opt = GetOption(sym_verbose, R_NilValue);
   if ((!isLogical(opt) && !isInteger(opt)) || LENGTH(opt)!=1 || INTEGER(opt)[0]==NA_INTEGER)
-    error("verbose option must be length 1 non-NA logical or integer");
+    error(_("verbose option must be length 1 non-NA logical or integer"));
   return INTEGER(opt)[0];
 }
 
@@ -416,6 +429,6 @@ SEXP initLastUpdated(SEXP var) {
 
 SEXP dllVersion() {
   // .onLoad calls this and checks the same as packageVersion() to ensure no R/C version mismatch, #3056
-  return(ScalarString(mkChar("1.14.1")));
+  return(ScalarString(mkChar("1.14.3")));
 }
 
